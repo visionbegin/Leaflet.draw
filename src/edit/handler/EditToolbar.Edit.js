@@ -49,6 +49,8 @@ L.EditToolbar.Edit = L.Handler.extend({
 		this._map.fire('draw:editstop', { handler: this.type });
 		this.fire('disabled', {handler: this.type});
 		$('.leaflet-draw-edit-styleable').spectrum("hide"); // show style controls to let user know of possible changes
+
+        $('#dialog-div').hide();
 	},
 
 	addHooks: function () {
@@ -85,6 +87,8 @@ L.EditToolbar.Edit = L.Handler.extend({
 			this._map
 				.off('mousemove', this._onMouseMove, this)
 				.off('touchmove', this._onMouseMove, this);
+
+            $('#dialog-div').hide();
 		}
 	},
 
@@ -306,12 +310,12 @@ L.EditToolbar.Edit = L.Handler.extend({
 
 		if (layer instanceof L.Marker) {
 			L.previousLayer = layer;
-			
+
 			// select marker
 			layer._icon.classList.remove('leaflet-edit-marker-editable');
 			layer._icon.classList.add('leaflet-edit-marker-selected');
-			
-			// #TODO: don't use jquery 
+
+			// #TODO: don't use jquery
 			$('.leaflet-draw-edit-styleable').spectrum("set", layer._icon.style.color); // set color from selected object
 			$('.text-controls select').val(layer._icon.style.fontSize.replace('px','')); // set font size from selected object
 			$('.leaflet-draw-edit-styleable').spectrum("show");	// show style controls to let user know of possible changes
@@ -323,19 +327,28 @@ L.EditToolbar.Edit = L.Handler.extend({
 		
 		// #TODO: don't use jquery
 		layer.setStyle({ dashArray: '10, 10' }); // select item
-		$('.leaflet-draw-edit-styleable').spectrum("set", layer.options.color); // set color from selected object
-		$('.poly-controls select').val(layer.options.weight); // set stroke size from selected object
-		$('.leaflet-draw-edit-styleable').spectrum("show"); // show style controls to let user know of possible changes
-		
+		$('#flat').spectrum("set", layer.options.color); // set color from selected object
+		$('#dialog-stroke').val(layer.options.weight); // set stroke size from selected object
+		//$('.leaflet-draw-edit-styleable').spectrum("show"); // show style controls to let user know of possible changes
+
+        $('#dialog-div').show();
+
 		// layer.options.color
 		// layer.options.opacity
 		// layer.options.weight
 	},
 	
 	_editText: function (e) {
+
+
 		var layer = e.layer || e.target || e;
-		layer._icon.firstChild.contentEditable = true;
-		layer._icon.click(); // simulate a double click to enable text editing
+        if (!(layer instanceof L.Marker)) {
+            layer._icon.firstChild.contentEditable = true;
+            layer._icon.click(); // simulate a double click to enable text editing
+        }
+
+
+        $('#dialog-div').show();
 	},
 
 	_hasAvailableLayers: function () {

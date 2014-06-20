@@ -3,6 +3,8 @@
 <head>
     <title>Leaflet.draw drawing and editing tools</title>
 
+    <!--<link rel="stylesheet" href="bootstrap.css" />-->
+
     <link rel="stylesheet" href="libs/leaflet.css" />
     <link rel="stylesheet" href="../dist/leaflet.draw.css" />
     
@@ -17,6 +19,10 @@
     <link rel="stylesheet" href="libs/spectrum.css" />
     <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
     <script src="libs/spectrum.js"></script>
+
+    <!--<script src="bootstrap.js"></script>-->
+
+
 
     <script src="../src/Leaflet.draw.js"></script>
 
@@ -50,11 +56,95 @@
     <script src="../src/edit/handler/EditToolbar.Edit.js"></script>
     <script src="../src/edit/handler/EditToolbar.Delete.js"></script>
     <script src="../src/edit/handler/EditToolbar.Style.js"></script>
+
+    <script src="../src/ext/Draggable.js"></script>
+    <script src="../src/ext/SettingsAccordion.js"></script>
+
+    <script src="../src/ext/leaflet.textpath.js"></script>
 </head>
 <body>
-	<div id="map" style="width: 800px; height: 600px; border: 1px solid #ccc"></div>
+	<div id="map" style="width: 1000px; height: 900px; border: 1px solid #ccc"></div>
 	<button id="changeColor">Rectangle -> Blue</button>
 	<script>
+
+        /**
+         * Function that returns the distance of a polyline
+         * as a string.
+         * @param {string} system The measurement system to use. Valid options are: "english", "metric", "both".
+         * @param {string} [unitSize] Measurement size. Valid options are: "small" (meters/yards), "large" (miles/km), or "dynamic".
+         * @returns {string}
+         */
+        L.Polyline.prototype.getLengthString = function (system, unitSize) {
+
+            var total = "";
+            var total_meters = 0;
+            var initial_coordinates = null;
+            var array_polyline_coordinates = this._latlngs;
+
+            for (i = 0; i < array_polyline_coordinates.length - 1; i++) {
+                initial_coordinates = array_polyline_coordinates[i];
+                total_meters  += initial_coordinates.distanceTo(array_polyline_coordinates[i + 1]);
+            }
+
+            var displayEnglishUnits = false;
+
+            if(system == "english" || system == "both"){
+                displayEnglishUnits = true;
+                var total_yards = total_meters * 1.0936;
+                if(unitSize == "dynamic"){
+                    if(total_yards >= 1760){
+                        total_yards = total_yards / 1760;
+                        total = total_yards.toFixed(2) + "mi";
+                    }else{
+                        total = total_yards.toFixed(2) + "yd";
+                    }
+                }else if(unitSize == "small"){
+                    total = total_yards.toFixed(2) + "yd";
+                }else if(unitSize == "large"){
+                    total_yards = total_yards / 1760;
+                    total = total_yards.toFixed(2) + "mi";
+                }
+
+            }
+
+            if(system == "metric" || system == "both"){
+                if(unitSize == "dynamic"){
+                    if(total_meters >= 1000){
+                        total_meters = total_meters / 1000;
+                        if(displayEnglishUnits){
+                            total += " (" + total_meters.toFixed(2) + "km)";
+                        }else{
+                            total += total_meters.toFixed(2) + "km";
+                        }
+
+                    }else{
+                        if(displayEnglishUnits){
+                            total += " (" + total_meters.toFixed(2) + "m)";
+                        }else{
+                            total += total_meters.toFixed(2) + "m";
+                        }
+                    }
+                }else if(unitSize == "small"){
+                    if(displayEnglishUnits){
+                        total += " (" + total_meters.toFixed(2) + "m)";
+                    }else{
+                        total += total_meters.toFixed(2) + "m";
+                    }
+                }else if(unitSize == "large"){
+                    total_meters = total_meters / 1000;
+                    if(displayEnglishUnits){
+                        total += " (" + total_meters.toFixed(2) + "km)";
+                    }else{
+                        total += total_meters.toFixed(2) + "km";
+                    }
+                }
+
+            }
+
+            return total;
+        };
+
+
 		var osmUrl = 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 			osmAttrib = '&copy; <a href="http://openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 			osm = L.tileLayer(osmUrl, {maxZoom: 18, attribution: osmAttrib}),
@@ -110,6 +200,18 @@
 
             if (type === 'marker') {
                 layer.bindPopup('A popup!');
+            }else if(type == 'polyline'){
+                var color = layer.options.color;
+                                //layer.getLengthString("metric", "large")
+                layer.controlType = "polyline";
+                layer.setText(layer.getLengthString("both", "dynamic"), {repeat: false,
+                    center:true,
+                    offset:-6,
+                    attributes: {'font-weight': 'bold',
+                        'fill':color,
+                        'font-size': '12'}});
+
+
             }
 
             drawnItems.addLayer(layer);
@@ -119,6 +221,18 @@
             var layers = e.layers;
             var countOfEditedLayers = 0;
             layers.eachLayer(function(layer) {
+                if (typeof layer.controlType !== 'undefined' && layer.controlType == 'polyline') {
+                    /******
+                    var color = layer.options.color;
+                    layer.setText(null);
+                    layer.setText(layer.getLengthString("both", "dynamic"), {repeat: false,
+                        center: true,
+                        offset: -8,
+                        attributes: {'font-weight': 'bold',
+                            'fill': color,
+                            'font-size': '12'}});
+                     ******/
+                }
                 countOfEditedLayers++;
             });
             console.log("Edited " + countOfEditedLayers + " layers");

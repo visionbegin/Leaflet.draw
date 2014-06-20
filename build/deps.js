@@ -34,6 +34,9 @@ var deps = {
 
 	Extensions: {
 		src: [
+			'ext/Draggable.js',
+			'ext/leaflet.textpath.js',
+			'ext/SettingsAccordion.js',
 			'ext/TouchEvents.js',
 			'ext/LatLngUtil.js',
 			'ext/GeometryUtil.js',

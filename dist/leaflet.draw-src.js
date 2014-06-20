@@ -91,7 +91,7 @@ L.drawLocal = {
 				edit: 'Edit layers.',
 				editDisabled: 'No layers to edit.',
 				remove: 'Delete layers.',
-				removeDisabled: 'No layers to delete.',
+				removeDisabled: 'No layers to delete.'
 			}
 		},
 		handlers: {
@@ -1970,6 +1970,334 @@ L.Circle.addInitHook(function () {
 	});
 });
 
+!function (moduleName, definition) {
+    if (typeof define === "function" && typeof define.amd === "object")define(definition); else this[moduleName] = definition()
+}("draggable", function definition() {
+    function addEventListener(element, eventName, handler) {
+        if (element.addEventListener) {
+            element.addEventListener(eventName, handler, false)
+        } else if (element.attachEvent) {
+            element.attachEvent("on" + eventName, handler)
+        } else {
+            element["on" + eventName] = handler
+        }
+    }
+
+    function removeEventListener(element, eventName, handler) {
+        if (element.removeEventListener) {
+            element.removeEventListener(eventName, handler, false)
+        } else if (element.detachEvent) {
+            element.detachEvent("on" + eventName, handler)
+        } else {
+            element["on" + eventName] = null
+        }
+    }
+
+    var currentElement;
+    var fairlyHighZIndex = "10000";
+
+    function draggable(element, handle) {
+        handle = handle || element;
+        setPositionType(element);
+        setDraggableListeners(element);
+        addEventListener(handle, "mousedown", function (event) {
+            startDragging(event, element)
+        })
+    }
+
+    function setPositionType(element) {
+        element.style.position = "absolute"
+    }
+
+    function setDraggableListeners(element) {
+        element.draggableListeners = {start: [], drag: [], stop: []};
+        element.whenDragStarts = addListener(element, "start");
+        element.whenDragging = addListener(element, "drag");
+        element.whenDragStops = addListener(element, "stop")
+    }
+
+    function startDragging(event, element) {
+        currentElement && sendToBack(currentElement);
+        currentElement = bringToFront(element);
+        var initialPosition = getInitialPosition(currentElement);
+        currentElement.style.left = inPixels(initialPosition.left);
+        currentElement.style.top = inPixels(initialPosition.top);
+        currentElement.lastXPosition = event.clientX;
+        currentElement.lastYPosition = event.clientY;
+        var okToGoOn = triggerEvent("start", {x: initialPosition.left, y: initialPosition.top, mouseEvent: event});
+        if (!okToGoOn)return;
+        addDocumentListeners()
+    }
+
+    function addListener(element, type) {
+        return function (listener) {
+            element.draggableListeners[type].push(listener)
+        }
+    }
+
+    function triggerEvent(type, args) {
+        var result = true;
+        var listeners = currentElement.draggableListeners[type];
+        for (var i = listeners.length - 1; i >= 0; i--) {
+            if (listeners[i](args) === false)result = false
+        }
+        return result
+    }
+
+    function sendToBack(element) {
+        var decreasedZIndex = fairlyHighZIndex - 1;
+        element.style["z-index"] = decreasedZIndex;
+        element.style["zIndex"] = decreasedZIndex
+    }
+
+    function bringToFront(element) {
+        element.style["z-index"] = fairlyHighZIndex;
+        element.style["zIndex"] = fairlyHighZIndex;
+        return element
+    }
+
+    function addDocumentListeners() {
+        addEventListener(document, "selectstart", cancelDocumentSelection);
+        addEventListener(document, "mousemove", repositionElement);
+        addEventListener(document, "mouseup", removeDocumentListeners)
+    }
+
+    function getInitialPosition(element) {
+        var boundingClientRect = element.getBoundingClientRect();
+        return{top: boundingClientRect.top, left: boundingClientRect.left}
+    }
+
+    function inPixels(value) {
+        return value + "px"
+    }
+
+    function cancelDocumentSelection(event) {
+        event.preventDefault && event.preventDefault();
+        event.stopPropagation && event.stopPropagation();
+        event.returnValue = false;
+        return false
+    }
+
+    function repositionElement(event) {
+        event.preventDefault && event.preventDefault();
+        event.returnValue = false;
+        var style = currentElement.style;
+        var elementXPosition = parseInt(style.left, 10);
+        var elementYPosition = parseInt(style.top, 10);
+        var elementNewXPosition = elementXPosition + (event.clientX - currentElement.lastXPosition);
+        var elementNewYPosition = elementYPosition + (event.clientY - currentElement.lastYPosition);
+        style.left = inPixels(elementNewXPosition);
+        style.top = inPixels(elementNewYPosition);
+        currentElement.lastXPosition = event.clientX;
+        currentElement.lastYPosition = event.clientY;
+        triggerEvent("drag", {x: elementNewXPosition, y: elementNewYPosition, mouseEvent: event})
+    }
+
+    function removeDocumentListeners(event) {
+        removeEventListener(document, "selectstart", cancelDocumentSelection);
+        removeEventListener(document, "mousemove", repositionElement);
+        removeEventListener(document, "mouseup", removeDocumentListeners);
+        var left = parseInt(currentElement.style.left, 10);
+        var top = parseInt(currentElement.style.top, 10);
+        triggerEvent("stop", {x: left, y: top, mouseEvent: event})
+    }
+
+    return draggable
+});
+
+/*
+ * Inspired by Tom Mac Wright article :
+ * http://mapbox.com/osmdev/2012/11/20/getting-serious-about-svg/
+ */
+
+(function () {
+
+var __onAdd = L.Polyline.prototype.onAdd,
+    __onRemove = L.Polyline.prototype.onRemove,
+    __updatePath = L.Polyline.prototype._updatePath,
+    __bringToFront = L.Polyline.prototype.bringToFront;
+
+
+var PolylineTextPath = {
+
+    onAdd: function (map) {
+        __onAdd.call(this, map);
+        this._textRedraw();
+    },
+
+    onRemove: function (map) {
+        map = map || this._map;
+        if (map && this._textNode)
+            map._pathRoot.removeChild(this._textNode);
+        __onRemove.call(this, map);
+    },
+
+    bringToFront: function () {
+        __bringToFront.call(this);
+        this._textRedraw();
+    },
+
+    _updatePath: function () {
+        __updatePath.call(this);
+        this._textRedraw();
+    },
+
+    _textRedraw: function () {
+        var text = this._text,
+            options = this._textOptions;
+        if (text) {
+            this.setText(null).setText(text, options);
+        }
+    },
+
+    setText: function (text, options) {
+        this._text = text;
+        this._textOptions = options;
+
+        /* If not in SVG mode or Polyline not added to map yet return */
+        /* setText will be called by onAdd, using value stored in this._text */
+        if (!L.Browser.svg || typeof this._map === 'undefined') {
+          return this;
+        }
+
+        var defaults = {repeat: false, fillColor: 'black', attributes: {}};
+        options = L.Util.extend(defaults, options);
+
+        /* If empty text, hide */
+        if (!text) {
+            if (this._textNode && this._textNode.parentNode)
+                this._map._pathRoot.removeChild(this._textNode);
+            return this;
+        }
+
+        text = text.replace(/ /g, '\u00A0');  // Non breakable spaces
+        var id = 'pathdef-' + L.Util.stamp(this);
+        var svg = this._map._pathRoot;
+        this._path.setAttribute('id', id);
+
+        if (options.repeat) {
+            /* Compute single pattern length */
+            var pattern = L.Path.prototype._createElement('text');
+            for (var attr in options.attributes)
+                pattern.setAttribute(attr, options.attributes[attr]);
+            pattern.appendChild(document.createTextNode(text));
+            svg.appendChild(pattern);
+            var alength = pattern.getComputedTextLength();
+            svg.removeChild(pattern);
+
+            /* Create string as long as path */
+            text = new Array(Math.ceil(this._path.getTotalLength() / alength)).join(text);
+        }
+
+        /* Put it along the path using textPath */
+        var textNode = L.Path.prototype._createElement('text'),
+            textPath = L.Path.prototype._createElement('textPath');
+
+        var dy = options.offset || this._path.getAttribute('stroke-width');
+
+        textPath.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", '#'+id);
+        textNode.setAttribute('dy', dy);
+        for (var attr in options.attributes)
+            textNode.setAttribute(attr, options.attributes[attr]);
+        textPath.appendChild(document.createTextNode(text));
+        textNode.appendChild(textPath);
+        svg.appendChild(textNode);
+        this._textNode = textNode;
+        
+        /* Center text according to the path's bounding box */
+        if (options.center) {
+            var textWidth = textNode.getBBox().width;
+
+            //BM: This line throws an error...you can't do this in SVG
+            //var pathWidth = this._path.getBBox().width;
+
+            //Fix:
+            var pathWidth = this._path.getBoundingClientRect().width;
+
+
+            /* Set the position for the left side of the textNode */
+            textNode.setAttribute('dx', ((pathWidth / 2) - (textWidth / 2)));
+        }
+
+        /* Initialize mouse events for the additional nodes */
+        if (this.options.clickable) {
+            if (L.Browser.svg || !L.Browser.vml) {
+                textPath.setAttribute('class', 'leaflet-clickable');
+            }
+
+            L.DomEvent.on(textNode, 'click', this._onMouseClick, this);
+
+            var events = ['dblclick', 'mousedown', 'mouseover',
+                          'mouseout', 'mousemove', 'contextmenu'];
+            for (var i = 0; i < events.length; i++) {
+                L.DomEvent.on(textNode, events[i], this._fireMouseEvent, this);
+            }
+        }
+
+        return this;
+    }
+};
+
+L.Polyline.include(PolylineTextPath);
+
+L.LayerGroup.include({
+    setText: function(text, options) {
+        for (var layer in this._layers) {
+            if (typeof this._layers[layer].setText === 'function') {
+                this._layers[layer].setText(text, options);
+            }
+        }
+        return this;
+    }
+});
+
+})();
+
+
+var settingsAccordionItemArray = [];
+
+function createSettingsAccordion() {
+
+    // Grab the accordion items from the page
+    settingsAccordionItemArray = document.getElementsByClassName('settingsAccordionItem');
+    var i = 0;
+    // Assign onclick events to the accordion item headings
+    for (i = 0; i < settingsAccordionItemArray.length; i++ ) {
+        var h2 = getFirstChildWithTagName( settingsAccordionItemArray[i], 'H2' );
+        h2.onclick = toggleSettingsAccordionItem;
+    }
+
+    // Hide all accordion item bodies except the first
+    for (i = 1; i < settingsAccordionItemArray.length; i++ ) {
+        settingsAccordionItemArray[i].className = 'settingsAccordionItem hideSection';
+    }
+}
+
+function toggleSettingsAccordionItem() {
+    var itemClass = this.parentNode.className;
+
+    // Hide all items
+    for ( var i = 0; i < settingsAccordionItemArray.length; i++ ) {
+        settingsAccordionItemArray[i].className = 'settingsAccordionItem hideSection';
+    }
+
+    // Show this item if it was previously hidden
+    if ( itemClass == 'settingsAccordionItem hideSection' ) {
+        this.parentNode.className = 'settingsAccordionItem';
+    }
+}
+
+function getFirstChildWithTagName( element, tagName ) {
+    var node;
+    for ( var i = 0; i < element.childNodes.length; i++ ) {
+        if ( element.childNodes[i].nodeName == tagName ){
+            node = element.childNodes[i];
+            break;
+        }
+    }
+    return node
+}
+
 L.Map.mergeOptions({
   touchExtend: true
 });
@@ -3054,6 +3382,8 @@ L.EditToolbar.Edit = L.Handler.extend({
 		this._map.fire('draw:editstop', { handler: this.type });
 		this.fire('disabled', {handler: this.type});
 		$('.leaflet-draw-edit-styleable').spectrum("hide"); // show style controls to let user know of possible changes
+
+        $('#dialog-div').hide();
 	},
 
 	addHooks: function () {
@@ -3090,6 +3420,8 @@ L.EditToolbar.Edit = L.Handler.extend({
 			this._map
 				.off('mousemove', this._onMouseMove, this)
 				.off('touchmove', this._onMouseMove, this);
+
+            $('#dialog-div').hide();
 		}
 	},
 
@@ -3311,12 +3643,12 @@ L.EditToolbar.Edit = L.Handler.extend({
 
 		if (layer instanceof L.Marker) {
 			L.previousLayer = layer;
-			
+
 			// select marker
 			layer._icon.classList.remove('leaflet-edit-marker-editable');
 			layer._icon.classList.add('leaflet-edit-marker-selected');
-			
-			// #TODO: don't use jquery 
+
+			// #TODO: don't use jquery
 			$('.leaflet-draw-edit-styleable').spectrum("set", layer._icon.style.color); // set color from selected object
 			$('.text-controls select').val(layer._icon.style.fontSize.replace('px','')); // set font size from selected object
 			$('.leaflet-draw-edit-styleable').spectrum("show");	// show style controls to let user know of possible changes
@@ -3328,19 +3660,28 @@ L.EditToolbar.Edit = L.Handler.extend({
 		
 		// #TODO: don't use jquery
 		layer.setStyle({ dashArray: '10, 10' }); // select item
-		$('.leaflet-draw-edit-styleable').spectrum("set", layer.options.color); // set color from selected object
-		$('.poly-controls select').val(layer.options.weight); // set stroke size from selected object
-		$('.leaflet-draw-edit-styleable').spectrum("show"); // show style controls to let user know of possible changes
-		
+		$('#flat').spectrum("set", layer.options.color); // set color from selected object
+		$('#dialog-stroke').val(layer.options.weight); // set stroke size from selected object
+		//$('.leaflet-draw-edit-styleable').spectrum("show"); // show style controls to let user know of possible changes
+
+        $('#dialog-div').show();
+
 		// layer.options.color
 		// layer.options.opacity
 		// layer.options.weight
 	},
 	
 	_editText: function (e) {
+
+
 		var layer = e.layer || e.target || e;
-		layer._icon.firstChild.contentEditable = true;
-		layer._icon.click(); // simulate a double click to enable text editing
+        if (!(layer instanceof L.Marker)) {
+            layer._icon.firstChild.contentEditable = true;
+            layer._icon.click(); // simulate a double click to enable text editing
+        }
+
+
+        $('#dialog-div').show();
 	},
 
 	_hasAvailableLayers: function () {
@@ -3486,13 +3827,15 @@ L.EditToolbar.Styleable = L.Handler.extend({
 
 	includes: L.Mixin.Events,
 
+    imageURL: "",
+
 	initialize: function (map, options) {
 		this._styleable = this; // cache this to target in jquery
-		
+
 		L.Handler.prototype.initialize.call(this, map);
 
 		L.Util.setOptions(this, options);
-		
+
 		this._map = map;
 
 		// Save the type so super can fire, need to do this as cannot do this.TYPE :(
@@ -3511,152 +3854,134 @@ L.EditToolbar.Styleable = L.Handler.extend({
 	addHooks: function () {
 		//this.fire('enable');
 	},
-	
+
 	removeHooks: function () {
 	},
-	
+
 	_createControls: function () {
-		var styleable = this._styleable,
-			selectStroke = this._createSelect(20),
-			selectFontSize = this._createSelect(50),
-			inputURL = this._createInput(),
-			inputDescription = this._createInput();
-		
-		// default settings
-		// #TODO: move to init() and use this.options/settings
-		this._setStroke(4);
-		this._setFontSize(12);
-		selectStroke.value = 4;
-		selectFontSize.value = 12;		
 
-		selectStroke.addEventListener('change', function() {
-			styleable._setStroke(this.value); 
-		});
-		
-		selectFontSize.addEventListener('change', function() {
-			styleable._setFontSize(this.value); 
-		});
+        //Create the dialog template
 
-		$(document).ready(function(){ // initialize after dom creation
-			// Color is depended on Jquery and Spectrum.js
-			$('.leaflet-draw-edit-styleable').spectrum({
-				chooseText: 'Ok',
-				color: 'rgba(254,87,161,0.2)', //Hot pink all the things! 
-				showAlpha: true,
-				showPalette: true,
-				palette: [ ],
-				allowEmpty:true,
-			    chooseText: "Close",
-			    cancelText: "",
-				move: function(color) {
-					styleable._setColor(color.toHexString(), color.alpha);
-				}
-			});
+        this._createDialogTemplate();
 
-			// #TODO: Be less redundant
-			var polyControlsContainer = L.DomUtil.create('fieldset', 'sp-palette-container poly-controls'),
-				textControlsContainer = L.DomUtil.create('fieldset', 'sp-palette-container text-controls'),
-				linkControlsContainer = L.DomUtil.create('fieldset', 'sp-palette-container link-controls'),
-				polyLegend = L.DomUtil.create('legend', 'leaflet-draw-layer-edit-styleable-legend'),
-				textLegend = L.DomUtil.create('legend', 'leaflet-draw-layer-edit-styleable-legend'),
-				linkLegend = L.DomUtil.create('legend', 'leaflet-draw-layer-edit-styleable-legend'),
-				strokeLabel = L.DomUtil.create('label', 'leaflet-draw-layer-edit-styleable-stroke-label'),
-				fontLabel = L.DomUtil.create('label', 'leaflet-draw-layer-edit-styleable-font-label')
-				urlLabel = L.DomUtil.create('label', 'leaflet-draw-layer-edit-styleable-url-label'),
-				descriptionLabel = L.DomUtil.create('label', 'leaflet-draw-layer-edit-styleable-description-label');
-			
-			polyLegend.textContent = 'Poly Shape Settings';
-			strokeLabel.textContent = 'Stroke Width: ';
-			
-			textLegend.textContent = 'Font Settings';
-			fontLabel.textContent = 'Font Size: ';
+        var that = this;
 
-			linkLegend.textContent = 'Link Settings';
-			urlLabel.textContent = 'Url: ';
-			descriptionLabel.textContent = 'Descption: ';
-			
-			polyControlsContainer.appendChild(polyLegend);
-			polyControlsContainer.appendChild(strokeLabel);
-			polyControlsContainer.appendChild(selectStroke);
-			
-			textControlsContainer.appendChild(textLegend);
-			textControlsContainer.appendChild(fontLabel);
-			textControlsContainer.appendChild(selectFontSize);
+        var selectFontSize = document.getElementById('dialog-font');
+        selectFontSize.addEventListener('change', function() {
+            that._setFontSize(this.value);
+        });
 
-			linkControlsContainer.appendChild(linkLegend);
-			linkControlsContainer.appendChild(urlLabel);
-			linkControlsContainer.appendChild(inputURL);
-			linkControlsContainer.appendChild(descriptionLabel);
-			linkControlsContainer.appendChild(inputDescription);
+        var selectStroke = document.getElementById('dialog-stroke');
+        selectStroke.addEventListener('change', function() {
+            that._setStroke(this.value);
+        });
 
-			$('.leaflet-draw-edit-styleable').spectrum("container").append(polyControlsContainer);
-			$('.leaflet-draw-edit-styleable').spectrum("container").append(textControlsContainer);
-			$('.leaflet-draw-edit-styleable').spectrum("container").append(linkControlsContainer);
-		});
+        var measurementSystem = document.getElementById('measurementSystem');
+        measurementSystem.addEventListener('change', function() {
+            that._setMeasurementSystem(this.value);
+        });
+
+        var linkRemove = document.getElementById('linkRemove');
+        linkRemove.addEventListener('click', function(){
+            if (L.previousLayer != null) {
+                L.previousLayer.closePopup();
+                L.previousLayer.unbindPopup();
+                L.previousLayer.edited = true;
+                L.previousLayer.styled = true;
+            }
+        });
+
+        var linkApply = document.getElementById('linkApply');
+        linkApply.addEventListener('click', function () {
+            if (L.previousLayer != null) {
+                var title = document.getElementById('title').value.trim();
+                var imageurl = document.getElementById('imageurl').value.trim();
+                var description = document.getElementById('description').value.trim();
+                var linkurl = document.getElementById('linkurl').value.trim();
+                var linkurltext = document.getElementById('linkurltext').value.trim();
+                console.log("title: " + title + " imageurl: " + imageurl + " description: " + description + " linkurl: " + linkurl + " linkurltext: " + linkurltext);
+
+                var divNode = document.createElement('DIV');
+                divNode.setAttribute("style", "max-width:250px;");
+
+                var pophtml = "";
+                if (title != "") {
+                    pophtml += "<h2>" + title + "</h2>";
+                }
+                if (imageurl != "") {
+                    pophtml += '<div style="margin:4px 0"><img style="width:100%;height: auto" src="' + imageurl + '" alt="" /> </div>';
+                }
+                if (description != "") {
+                    pophtml += '<div style="margin:4px 0">' + description + '</div>';
+                }
+                if (linkurl != "" && linkurltext != "") {
+                    pophtml += '<div style="margin:4px 0"><a target="_blank" href="' + linkurl + '">' + linkurltext + '</a></div>';
+                }
+
+
+                divNode.innerHTML = pophtml;
+
+
+                L.previousLayer.bindPopup(divNode);
+                L.previousLayer.edited = true;
+                L.previousLayer.styled = true;
+                L.previousLayer.openPopup();
+            }
+        });
+
+        this._setStroke(4);
+        this._setFontSize(12);
+        selectStroke.value = 4;
+        selectFontSize.value = 12;
+
+
+        window.onload = function(){
+
+
+
+            $("#flat").spectrum({
+                flat: false,
+                showInput: false,
+                color: 'rgba(254,87,161,0.2)', //Hot pink all the things!
+                showAlpha: true,
+                showPalette: true,
+                palette: [ ],
+                allowEmpty:true,
+                showButtons: false,
+                move: function(color) {
+                    that._setColor(color.toHexString(), color.alpha);
+                }
+            });
+
+            createSettingsAccordion();
+
+
+		};
 	},
 
-	_createSelect: function (n) { 
-		var select = L.DomUtil.create('select','leaflet-draw-layer-edit-styleable-select');
+    _setMeasurementSystem: function(system){
 
-		for ( var i = 1; n >= i; i++) {
-			var option = L.DomUtil.create("option",'size-' + i);
-			option.setAttribute('style','font-size: ' + i + 'px');
-			option.value = i
-			option.text = i;
-			select.add(option);
-		}
+        if (L.previousLayer != null && L.previousLayer instanceof L.Polyline) {
+            var color = L.previousLayer.options.color;
+            L.previousLayer.setText(null);
+            L.previousLayer.setText(L.previousLayer.getLengthString(system, "dynamic"), {repeat: false,
+                center: true,
+                offset: -8,
+                attributes: {'font-weight': 'bold',
+                    'fill': color,
+                    'font-size': '12'}});
 
-		return select
-	},
+            L.previousLayer.edited = true;
+            L.previousLayer.styled = true;
 
-	_createInput: function () {
-		var input = L.DomUtil.create('input','leaflet-draw-layer-edit-styleable-input');
-		return input
-	},
+        }
 
-	_setDescription: function (description) {
-		// Edit selected item in edit mode
-		if (L.previousLayer != null ) {
-			if (L.previousLayer instanceof L.Marker) {
-				L.previousLayer._icon.style.fontSize = L.previousLayer.options.fontSize = size + 'px';
-			} else {
-				// #TODO: change opacity if it is just the polyline
-				L.previousLayer.setStyle({
-					fontSize: size
-				});
-			}
-			L.previousLayer.edited = true;
-			L.previousLayer.styled = true; // #TODO: simplyfy this to use .edited
-		}
+    },
 
-		// Use global var of toolbar that gets set on L.Control.Draw initialization
-		L.toolbarDraw.setDrawingOptions({ 
-			textlabel: { fontSize: size + 'px' }
-		});
-	},
 
-	_setURL: function (Url) {
-		// Edit selected item in edit mode
-		if (L.previousLayer != null ) {
-			if (L.previousLayer instanceof L.Marker) {
-				L.previousLayer._icon.style.fontSize = L.previousLayer.options.fontSize = size + 'px';
-			} else {
-				// #TODO: change opacity if it is just the polyline
-				L.previousLayer.setStyle({
-					fontSize: size
-				});
-			}
-			L.previousLayer.edited = true;
-			L.previousLayer.styled = true; // #TODO: simplyfy this to use .edited
-		}
 
-		// Use global var of toolbar that gets set on L.Control.Draw initialization
-		// L.toolbarDraw.setDrawingOptions({ 
-		// 	textlabel: { fontSize: size + 'px' }
-		// });
-	},
-	
 	_setFontSize: function (size) {
+        //alert("_setFontSize");
 		// Edit selected item in edit mode
 		if (L.previousLayer != null ) {
 			if (L.previousLayer instanceof L.Marker) {
@@ -3668,16 +3993,17 @@ L.EditToolbar.Styleable = L.Handler.extend({
 				});
 			}
 			L.previousLayer.edited = true;
-			L.previousLayer.styled = true; // #TODO: simplyfy this to use .edited
+			L.previousLayer.styled = true;
 		}
 
 		// Use global var of toolbar that gets set on L.Control.Draw initialization
-		L.toolbarDraw.setDrawingOptions({ 
+		L.toolbarDraw.setDrawingOptions({
 			textlabel: { fontSize: size + 'px' }
 		});
 	},
 
 	_setColor: function (color, opacity) {
+        //alert("_setColor");
 		// Edit selected item in edit mode
 		if (L.previousLayer != null ) {
 			if (L.previousLayer instanceof L.Marker) {
@@ -3695,7 +4021,7 @@ L.EditToolbar.Styleable = L.Handler.extend({
 		}
 
 		// Use global var of toolbar that gets set on L.Control.Draw initialization
-		L.toolbarDraw.setDrawingOptions({ 
+		L.toolbarDraw.setDrawingOptions({
 			polyline: { shapeOptions: { color: color, opacity: opacity } },
 			polygon: { shapeOptions: { color: color, fillOpacity: opacity } },
 			rectangle: { shapeOptions: { color: color, fillOpacity: opacity } },
@@ -3705,6 +4031,9 @@ L.EditToolbar.Styleable = L.Handler.extend({
 	},
 
 	_setStroke: function (weight) {
+        if(L.previousLayer instanceof L.Marker){
+            return;
+        }
 		// Edit selected item in edit mode
 		if (L.previousLayer != null ) {
 			L.previousLayer.setStyle({
@@ -3713,15 +4042,110 @@ L.EditToolbar.Styleable = L.Handler.extend({
 			L.previousLayer.edited = true;
 			L.previousLayer.styled = true; // #TODO: simplyfy this to use .edited
 		}
-		
+
 		// Use global var of toolbar that gets set on L.Control.Draw initialization
-		L.toolbarDraw.setDrawingOptions({ 
+		L.toolbarDraw.setDrawingOptions({
 			polyline: { shapeOptions: { weight: weight } },
 			polygon: { shapeOptions: { weight: weight } },
 			rectangle: { shapeOptions: { weight: weight } },
 			circle: { shapeOptions: { weight: weight } }
 		});
 	},
+
+    _createDialogTemplate: function () {
+        var template = '<div id="moveSettingDialogHandle" class="moveSettings" >Move</div> ' +
+            '<div class="closeSettings" onclick="$(\'#dialog-div\').hide()">X</div> ' +
+            '<div style="clear: both"></div> ' +
+            '<div id="settingsAccordion">' +
+            '<div class="settingsAccordionItem">' +
+                '<h2>Color</h2>' +
+                '<div class="dialog-frm">' +
+                    '<h1>Color Settings<span>Please select the color for the item.</span></h1>' +
+                    '<label>' +
+                    '<input type="text" id="flat" />' +
+                    '</label>' +
+                '</div>' +
+            '</div>' +
+            '<div class="settingsAccordionItem">' +
+                '<h2>Font and Stroke</h2>' +
+                '<div class="dialog-frm">' +
+                    '<h1>Font and Stroke Settings<span>Please fill fields desired, then click apply.</span></h1>' +
+                    '<label>' +
+                    '<span>Stroke Width :</span>' +
+                    '<select id="dialog-stroke"><option class="size-1" value="1">1</option><option class="size-2" value="2">2</option><option class="size-3" value="3">3</option><option class="size-4" value="4">4</option><option class="size-5" value="5">5</option><option class="size-6" value="6">6</option><option class="size-7" value="7">7</option><option class="size-8" value="8">8</option><option class="size-9" value="9">9</option><option class="size-10" value="10">10</option><option class="size-11" value="11">11</option><option class="size-12" value="12">12</option><option class="size-13" value="13">13</option><option class="size-14" value="14">14</option><option class="size-15" value="15">15</option><option class="size-16" value="16">16</option><option class="size-17" value="17">17</option><option class="size-18" value="18">18</option><option class="size-19" value="19">19</option><option class="size-20" value="20">20</option></select>' +
+                    '</label>' +
+                    '<label>' +
+                    '<span>Font Size :</span>' +
+                    '<select id="dialog-font"><option class="size-1" value="1">1</option><option class="size-2" value="2">2</option><option class="size-3" value="3">3</option><option class="size-4" value="4">4</option><option class="size-5" value="5">5</option><option class="size-6" value="6">6</option><option class="size-7" value="7">7</option><option class="size-8" value="8">8</option><option class="size-9" value="9">9</option><option class="size-10" value="10">10</option><option class="size-11" value="11">11</option><option class="size-12" value="12">12</option><option class="size-13" value="13">13</option><option class="size-14" value="14">14</option><option class="size-15" value="15">15</option><option class="size-16" value="16">16</option><option class="size-17" value="17">17</option><option class="size-18" value="18">18</option><option class="size-19" value="19">19</option><option class="size-20" value="20">20</option><option class="size-21" value="21">21</option><option class="size-22" value="22">22</option><option class="size-23" value="23">23</option><option class="size-24" value="24">24</option><option class="size-25" value="25">25</option><option class="size-26" value="26">26</option><option class="size-27" value="27">27</option><option class="size-28" value="28">28</option><option class="size-29" value="29">29</option><option class="size-30" value="30">30</option><option class="size-31" value="31">31</option><option class="size-32" value="32">32</option><option class="size-33" value="33">33</option><option class="size-34" value="34">34</option><option class="size-35" value="35">35</option><option class="size-36" value="36">36</option><option class="size-37" value="37">37</option><option class="size-38" value="38">38</option><option class="size-39" value="39">39</option><option class="size-40" value="40">40</option><option class="size-41" value="41">41</option><option class="size-42" value="42">42</option><option class="size-43" value="43">43</option><option class="size-44" value="44">44</option><option class="size-45" value="45">45</option><option class="size-46" value="46">46</option><option class="size-47" value="47">47</option><option class="size-48" value="48">48</option><option class="size-49" value="49">49</option><option class="size-50" value="50">50</option></select>' +
+                    '</label>' +
+                '</div>' +
+            '</div>' +
+            '<div class="settingsAccordionItem">' +
+                '<h2>Link</h2>' +
+                '<div class="dialog-frm">' +
+                    '<h1>Link Settings<span>Please fill fields desired, then click apply.</span></h1>' +
+                    '<label>' +
+                        '<span>Title :</span>' +
+                        '<input id="title" type="text" name="title" placeholder="Title" />' +
+                    '</label>' +
+                    '<label>' +
+                        '<span>Image Url :</span>' +
+                    '<input id="imageurl" type="text" name="imageurl" placeholder="Enter a valid url to an image" />' +
+                    '</label>' +
+                    '<label>' +
+                    '<span>Description :</span>' +
+                    '<textarea rows="5" id="description" name="message" placeholder="Description"></textarea>' +
+                    '</label>' +
+                    '<label>' +
+                    '<span>Link Url :</span>' +
+                    '<input id="linkurl" type="text" name="linkurl" placeholder="Enter a valid url to an image" />' +
+                    '</label>' +
+                    '<label>' +
+                    '<span>Link Url Text :</span>' +
+                    '<textarea rows="5" id="linkurltext" name="linkurltext" placeholder="Enter display text for the link"></textarea>' +
+                    '</label>' +
+
+                    '<input id="linkApply" type="button" class="button" value="Apply" />' +
+                    '<div style="display:inline-block;padding-right: 4px"></div> ' +
+                    '<input id="linkRemove" type="button" class="button" value="Delete" />' +
+                '</div>' +
+            '</div>' +
+            '<div class="settingsAccordionItem">' +
+                '<h2 class="last-item">Measurement</h2>' +
+                '<div class="dialog-frm">' +
+                '<h1>Measurement Settings<span>Please choose your measurement display preferences for polylines.</span></h1>' +
+                '<label>' +
+                '<span>Title :</span>' +
+                    '<select id="measurementSystem" name="measurementSystem">' +
+                        '<option value="english" selected="selected">English</option>' +
+                        '<option value="metric" selected="selected">Metric</option>' +
+                        '<option value="both" selected="selected">Both</option>' +
+                    '</select>' +
+                '</label>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+
+        if(document.getElementById("dialog-div") == null){
+            //var mainDialogDiv = '<div id="dialog-div" style="display:none;" class="grey-dialog-block"></div>';
+            var mainDialogDiv = document.createElement("DIV");
+            mainDialogDiv.setAttribute('id', 'dialog-div');
+            mainDialogDiv.setAttribute('style', 'display:none;');
+            mainDialogDiv.setAttribute('class', 'grey-dialog-block'); //draggable="true"
+            //mainDialogDiv.setAttribute('draggable', 'true');
+            document.body.appendChild(mainDialogDiv);
+            //$(document.body).append(mainDialogDiv);
+        }
+
+        document.getElementById("dialog-div").innerHTML = "";
+        document.getElementById("dialog-div").innerHTML = template;
+
+        //Make it draggable
+        var elementToDrag = document.getElementById('dialog-div');
+        draggable(elementToDrag, document.getElementById('moveSettingDialogHandle'));
+        //draggable(elementToDrag);
+    }
 });
 
 }(window, document));
